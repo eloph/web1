@@ -740,9 +740,13 @@
     <div class="container">
       <h1 class="page-title">👤 个人中心</h1>
       <div class="profile-container">
-        <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=cute%20teddy%20bear%20avatar%20cartoon%20style&image_size=square" alt="头像" class="profile-avatar">
-        <h2 class="profile-name">小企鹅</h2>
-        <p class="profile-bio">喜欢旅行和记录生活的小可爱</p>
+        <div style="position: relative; display: inline-block;">
+          <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=cute%20teddy%20bear%20avatar%20cartoon%20style&image_size=square" alt="头像" class="profile-avatar" id="profile-avatar">
+          <input type="file" id="avatar-input" accept="image/*" style="display: none;">
+          <button class="avatar-upload-btn" onclick="document.getElementById('avatar-input').click();" style="position: absolute; bottom: 0; right: 0; background-color: var(--pink); color: white; border: none; border-radius: 50%; width: 30px; height: 30px; font-size: 16px; cursor: pointer;">+</button>
+        </div>
+        <h2 class="profile-name" id="profile-name">小企鹅</h2>
+        <p class="profile-bio" id="profile-bio">喜欢旅行和记录生活的小可爱</p>
       </div>
       <div class="card">
         <h3>设置</h3>
@@ -757,7 +761,7 @@
           </li>
           <li class="settings-item">
             <span class="settings-label">同步设置</span>
-            <span class="settings-value">自动同步</span>
+            <span class="settings-value" id="sync-status">自动同步</span>
           </li>
           <li class="settings-item">
             <span class="settings-label">关于我们</span>
@@ -889,65 +893,71 @@
     });
 
     // 初始化首页
-    function initHome() {
+    async function initHome() {
       const diaryList = document.getElementById('diary-list');
       
-      // 模拟日记数据
-      const diaries = [
-        {
-          id: 1,
-          title: '今天去了公园',
-          content: '今天天气很好，和朋友一起去了公园，看到了很多美丽的花朵，还遇到了一只可爱的小猫咪。',
-          mood: 'happy',
-          date: '2026-04-23',
-          images: [
-            'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=beautiful%20park%20with%20flowers%20cartoon%20style&image_size=square',
-            'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=cute%20cat%20in%20park%20cartoon%20style&image_size=square'
-          ]
-        },
-        {
-          id: 2,
-          title: '旅行日记',
-          content: '终于来到了梦寐以求的海边，海水很蓝，沙滩很软，心情超级好！',
-          mood: 'excited',
-          date: '2026-04-22',
-          images: [
-            'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=beautiful%20beach%20with%20blue%20sea%20cartoon%20style&image_size=square'
-          ]
-        }
-      ];
-      
-      // 渲染日记列表
-      diaries.forEach(diary => {
-        const diaryCard = document.createElement('div');
-        diaryCard.className = 'card diary-card';
-        diaryCard.onclick = () => showDiaryDetail(diary);
+      try {
+        // 从数据库读取日记
+        const diaries = await getDiaries();
         
-        // 心情表情映射
-        const moodEmojis = {
-          happy: '😊',
-          calm: '😌',
-          sad: '😢',
-          excited: '🤩',
-          tired: '😴'
-        };
+        // 按日期排序（最新的在前）
+        diaries.sort((a, b) => new Date(b.date) - new Date(a.date));
         
-        diaryCard.innerHTML = `
-          <div class="diary-header">
-            <span class="diary-date">${diary.date}</span>
-            <span class="diary-mood">${moodEmojis[diary.mood]}</span>
-          </div>
-          <h3 class="diary-title">${diary.title}</h3>
-          <p class="diary-content">${diary.content}</p>
-          ${diary.images.length > 0 ? `
-            <div class="diary-images">
-              ${diary.images.map(img => `<img src="${img}" alt="日记图片" class="diary-image">`).join('')}
+        // 渲染日记列表
+        diaries.forEach(diary => {
+          const diaryCard = document.createElement('div');
+          diaryCard.className = 'card diary-card';
+          diaryCard.onclick = () => showDiaryDetail(diary);
+          
+          // 心情表情映射
+          const moodEmojis = {
+            happy: '😊',
+            calm: '😌',
+            sad: '😢',
+            excited: '🤩',
+            tired: '😴'
+          };
+          
+          diaryCard.innerHTML = `
+            <div class="diary-header">
+              <span class="diary-date">${diary.date}</span>
+              <span class="diary-mood">${moodEmojis[diary.mood]}</span>
             </div>
-          ` : ''}
-        `;
-        
-        diaryList.appendChild(diaryCard);
-      });
+            <h3 class="diary-title">${diary.title}</h3>
+            <p class="diary-content">${diary.content}</p>
+            ${diary.images.length > 0 ? `
+              <div class="diary-images">
+                ${diary.images.map(img => `<img src="${img}" alt="日记图片" class="diary-image">`).join('')}
+              </div>
+            ` : ''}
+            <div style="margin-top: 10px; text-align: right;">
+              <button class="delete-diary-btn" onclick="deleteDiaryById(${diary.id}); event.stopPropagation();" style="background-color: #ff6b6b; color: white; border: none; border-radius: 15px; padding: 5px 10px; font-size: 12px; cursor: pointer;">删除</button>
+            </div>
+          `;
+          
+          diaryList.appendChild(diaryCard);
+        });
+      } catch (error) {
+        console.error('获取日记失败:', error);
+        // 显示错误信息
+        diaryList.innerHTML = '<p style="text-align: center; color: #666;">加载日记失败，请刷新页面重试</p>';
+      }
+    }
+
+    // 删除日记
+    async function deleteDiaryById(id) {
+      if (confirm('确定要删除这篇日记吗？')) {
+        try {
+          await deleteDiary(id);
+          alert('日记删除成功！');
+          // 重新加载首页
+          document.getElementById('diary-list').innerHTML = '';
+          initHome();
+        } catch (error) {
+          console.error('删除日记失败:', error);
+          alert('删除日记失败，请重试！');
+        }
+      }
     }
 
     // 显示日记详情
@@ -1077,7 +1087,7 @@
       });
       
       // 发布日记
-      submitBtn.addEventListener('click', function() {
+      submitBtn.addEventListener('click', async function() {
         const title = document.querySelector('.editor-title').value;
         const content = document.querySelector('.editor-content').value;
         const mood = document.querySelector('.mood-option.active').getAttribute('data-mood');
@@ -1093,25 +1103,45 @@
           return;
         }
         
-        // 模拟发布成功
-        alert('日记发布成功！');
+        // 创建日记对象
+        const diary = {
+          id: Date.now(), // 使用时间戳作为ID
+          user_id: 1,
+          title: title || '无标题',
+          content: content,
+          mood: mood,
+          date: new Date().toISOString().split('T')[0],
+          images: images,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          sync_status: 'pending'
+        };
         
-        // 清空表单
-        document.querySelector('.editor-title').value = '';
-        document.querySelector('.editor-content').value = '';
-        uploadedImages.innerHTML = '';
-        
-        // 切换到首页
-        document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
-        document.getElementById('home').classList.add('active');
-        
-        // 切换导航项
-        document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
-        document.querySelector('[data-page="home"]').classList.add('active');
-        
-        // 重新初始化首页
-        document.getElementById('diary-list').innerHTML = '';
-        initHome();
+        try {
+          // 保存到数据库
+          await addDiary(diary);
+          alert('日记发布成功！');
+          
+          // 清空表单
+          document.querySelector('.editor-title').value = '';
+          document.querySelector('.editor-content').value = '';
+          uploadedImages.innerHTML = '';
+          
+          // 切换到首页
+          document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+          document.getElementById('home').classList.add('active');
+          
+          // 切换导航项
+          document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+          document.querySelector('[data-page="home"]').classList.add('active');
+          
+          // 重新初始化首页
+          document.getElementById('diary-list').innerHTML = '';
+          initHome();
+        } catch (error) {
+          console.error('发布日记失败:', error);
+          alert('发布日记失败，请重试！');
+        }
       });
     }
 
@@ -1151,7 +1181,7 @@
     }
 
     // 初始化地图
-    function initMap() {
+    async function initMap() {
       if (map) return;
       
       const mapContainer = document.getElementById('map-container');
@@ -1163,30 +1193,14 @@
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
       }).addTo(map);
       
-      // 模拟标记数据
-      markers = [
-        {
-          id: 1,
-          lat: 39.9042,
-          lng: 116.4074,
-          name: '北京',
-          images: [
-            'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=beijing%20forbidden%20city%20cartoon%20style&image_size=square'
-          ]
-        },
-        {
-          id: 2,
-          lat: 31.2304,
-          lng: 121.4737,
-          name: '上海',
-          images: [
-            'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=shanghai%20skyline%20cartoon%20style&image_size=square'
-          ]
-        }
-      ];
-      
-      // 渲染所有标记
-      renderMarkers();
+      try {
+        // 从数据库读取标记
+        markers = await getMarkers();
+        // 渲染所有标记
+        renderMarkers();
+      } catch (error) {
+        console.error('获取标记失败:', error);
+      }
       
       // 初始化添加标记按钮
       const addMarkerBtn = document.getElementById('add-marker-btn');
@@ -1213,6 +1227,15 @@
     
     // 渲染所有标记
     function renderMarkers() {
+      // 清除现有标记
+      if (map) {
+        map.eachLayer(function(layer) {
+          if (layer instanceof L.Marker) {
+            map.removeLayer(layer);
+          }
+        });
+      }
+      
       markers.forEach(markerData => {
         const customIcon = L.divIcon({
           className: 'custom-marker',
@@ -1232,9 +1255,26 @@
                      onclick="openImageModal('${img}')">
               `).join('')}
             </div>
+            <button onclick="deleteMarkerById(${markerData.id});" style="margin-top: 10px; background-color: #ff6b6b; color: white; border: none; border-radius: 15px; padding: 5px 10px; font-size: 12px; cursor: pointer;">删除</button>
           </div>
         `);
       });
+    }
+
+    // 删除标记
+    async function deleteMarkerById(id) {
+      if (confirm('确定要删除这个标记吗？')) {
+        try {
+          await deleteMarker(id);
+          alert('标记删除成功！');
+          // 重新加载标记
+          markers = await getMarkers();
+          renderMarkers();
+        } catch (error) {
+          console.error('删除标记失败:', error);
+          alert('删除标记失败，请重试！');
+        }
+      }
     }
     
     // 初始化标记模态框
@@ -1308,7 +1348,7 @@
       });
       
       // 保存标记
-      saveBtn.addEventListener('click', function() {
+      saveBtn.addEventListener('click', async function() {
         const name = document.getElementById('marker-name').value;
         
         if (!name) {
@@ -1329,44 +1369,37 @@
         
         // 创建新标记
         const newMarker = {
-          id: markers.length + 1,
+          id: Date.now(), // 使用时间戳作为ID
+          user_id: 1,
+          name: name,
           lat: markerCoords.lat,
           lng: markerCoords.lng,
-          name: name,
-          images: images
+          images: images,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          sync_status: 'pending'
         };
         
-        markers.push(newMarker);
-        
-        // 添加标记到地图
-        const customIcon = L.divIcon({
-          className: 'custom-marker',
-          html: '<span style="font-size: 24px;">🐧</span>',
-          iconSize: [30, 30],
-          iconAnchor: [15, 15]
-        });
-        
-        const m = L.marker([markerCoords.lat, markerCoords.lng], { icon: customIcon }).addTo(map);
-        m.bindPopup(`
-          <div style="text-align: center;">
-            <h3>${name}</h3>
-            <div style="display: flex; flex-wrap: wrap; gap: 5px; justify-content: center;">
-              ${images.map(img => `
-                <img src="${img}" alt="${name}" 
-                     style="width: 80px; border-radius: 8px; margin: 3px; cursor: pointer;" 
-                     onclick="openImageModal('${img}')">
-              `).join('')}
-            </div>
-          </div>
-        `);
-        
-        // 关闭模态框
-        modal.style.display = 'none';
-        document.getElementById('marker-name').value = '';
-        document.getElementById('marker-coords').textContent = '';
-        uploadedImages.innerHTML = '';
-        
-        alert('标记添加成功！');
+        try {
+          // 保存到数据库
+          await addMarker(newMarker);
+          
+          // 更新标记列表
+          markers = await getMarkers();
+          // 重新渲染标记
+          renderMarkers();
+          
+          // 关闭模态框
+          modal.style.display = 'none';
+          document.getElementById('marker-name').value = '';
+          document.getElementById('marker-coords').textContent = '';
+          uploadedImages.innerHTML = '';
+          
+          alert('标记添加成功！');
+        } catch (error) {
+          console.error('添加标记失败:', error);
+          alert('添加标记失败，请重试！');
+        }
       });
     }
 
@@ -1395,6 +1428,9 @@
       modal.style.display = 'block';
     }
 
+    // 全局数据库变量
+    let db;
+
     // 初始化 IndexedDB
     function initIndexedDB() {
       const request = indexedDB.open('diary-app', 1);
@@ -1404,7 +1440,10 @@
       };
       
       request.onsuccess = function(event) {
+        db = event.target.result;
         console.log('数据库打开成功');
+        // 初始化数据
+        initData();
       };
       
       request.onupgradeneeded = function(event) {
@@ -1429,12 +1468,6 @@
           markerStore.createIndex('created_at', 'created_at', { unique: false });
         }
         
-        if (!db.objectStoreNames.contains('images')) {
-          const imageStore = db.createObjectStore('images', { keyPath: 'id' });
-          imageStore.createIndex('diary_id', 'diary_id', { unique: false });
-          imageStore.createIndex('marker_id', 'marker_id', { unique: false });
-        }
-        
         if (!db.objectStoreNames.contains('users')) {
           db.createObjectStore('users', { keyPath: 'id' });
         }
@@ -1444,6 +1477,379 @@
         }
       };
     }
+
+    // 初始化默认数据
+    function initData() {
+      // 检查是否有用户数据
+      const transaction = db.transaction(['users'], 'readwrite');
+      const userStore = transaction.objectStore('users');
+      const userRequest = userStore.get(1);
+      
+      userRequest.onsuccess = function(event) {
+        if (!event.target.result) {
+          // 创建默认用户
+          userStore.add({
+            id: 1,
+            name: '小企鹅',
+            bio: '喜欢旅行和记录生活的小可爱',
+            avatar: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=cute%20teddy%20bear%20avatar%20cartoon%20style&image_size=square',
+            created_at: new Date().toISOString()
+          });
+        }
+      };
+      
+      // 检查是否有日记数据
+      const diaryTransaction = db.transaction(['diaries'], 'readwrite');
+      const diaryStore = diaryTransaction.objectStore('diaries');
+      const diaryCountRequest = diaryStore.count();
+      
+      diaryCountRequest.onsuccess = function(event) {
+        if (event.target.result === 0) {
+          // 添加默认日记
+          const defaultDiaries = [
+            {
+              id: 1,
+              user_id: 1,
+              title: '今天去了公园',
+              content: '今天天气很好，和朋友一起去了公园，看到了很多美丽的花朵，还遇到了一只可爱的小猫咪。',
+              mood: 'happy',
+              date: '2026-04-23',
+              images: [
+                'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=beautiful%20park%20with%20flowers%20cartoon%20style&image_size=square',
+                'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=cute%20cat%20in%20park%20cartoon%20style&image_size=square'
+              ],
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              sync_status: 'synced'
+            },
+            {
+              id: 2,
+              user_id: 1,
+              title: '旅行日记',
+              content: '终于来到了梦寐以求的海边，海水很蓝，沙滩很软，心情超级好！',
+              mood: 'excited',
+              date: '2026-04-22',
+              images: [
+                'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=beautiful%20beach%20with%20blue%20sea%20cartoon%20style&image_size=square'
+              ],
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              sync_status: 'synced'
+            }
+          ];
+          
+          defaultDiaries.forEach(diary => {
+            diaryStore.add(diary);
+          });
+        }
+      };
+      
+      // 检查是否有标记数据
+      const markerTransaction = db.transaction(['markers'], 'readwrite');
+      const markerStore = markerTransaction.objectStore('markers');
+      const markerCountRequest = markerStore.count();
+      
+      markerCountRequest.onsuccess = function(event) {
+        if (event.target.result === 0) {
+          // 添加默认标记
+          const defaultMarkers = [
+            {
+              id: 1,
+              user_id: 1,
+              name: '北京',
+              lat: 39.9042,
+              lng: 116.4074,
+              images: [
+                'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=beijing%20forbidden%20city%20cartoon%20style&image_size=square'
+              ],
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              sync_status: 'synced'
+            },
+            {
+              id: 2,
+              user_id: 1,
+              name: '上海',
+              lat: 31.2304,
+              lng: 121.4737,
+              images: [
+                'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=shanghai%20skyline%20cartoon%20style&image_size=square'
+              ],
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              sync_status: 'synced'
+            }
+          ];
+          
+          defaultMarkers.forEach(marker => {
+            markerStore.add(marker);
+          });
+        }
+      };
+    }
+
+    // 数据库操作函数
+    function getDiaries() {
+      return new Promise((resolve, reject) => {
+        if (!db) {
+          reject('数据库未初始化');
+          return;
+        }
+        
+        const transaction = db.transaction(['diaries'], 'readonly');
+        const store = transaction.objectStore('diaries');
+        const request = store.getAll();
+        
+        request.onsuccess = function(event) {
+          resolve(event.target.result);
+        };
+        
+        request.onerror = function(event) {
+          reject(event.target.error);
+        };
+      });
+    }
+
+    function addDiary(diary) {
+      return new Promise((resolve, reject) => {
+        if (!db) {
+          reject('数据库未初始化');
+          return;
+        }
+        
+        const transaction = db.transaction(['diaries'], 'readwrite');
+        const store = transaction.objectStore('diaries');
+        const request = store.add(diary);
+        
+        request.onsuccess = function(event) {
+          resolve(event.target.result);
+        };
+        
+        request.onerror = function(event) {
+          reject(event.target.error);
+        };
+      });
+    }
+
+    function deleteDiary(id) {
+      return new Promise((resolve, reject) => {
+        if (!db) {
+          reject('数据库未初始化');
+          return;
+        }
+        
+        const transaction = db.transaction(['diaries'], 'readwrite');
+        const store = transaction.objectStore('diaries');
+        const request = store.delete(id);
+        
+        request.onsuccess = function() {
+          resolve();
+        };
+        
+        request.onerror = function(event) {
+          reject(event.target.error);
+        };
+      });
+    }
+
+    function getMarkers() {
+      return new Promise((resolve, reject) => {
+        if (!db) {
+          reject('数据库未初始化');
+          return;
+        }
+        
+        const transaction = db.transaction(['markers'], 'readonly');
+        const store = transaction.objectStore('markers');
+        const request = store.getAll();
+        
+        request.onsuccess = function(event) {
+          resolve(event.target.result);
+        };
+        
+        request.onerror = function(event) {
+          reject(event.target.error);
+        };
+      });
+    }
+
+    function addMarker(marker) {
+      return new Promise((resolve, reject) => {
+        if (!db) {
+          reject('数据库未初始化');
+          return;
+        }
+        
+        const transaction = db.transaction(['markers'], 'readwrite');
+        const store = transaction.objectStore('markers');
+        const request = store.add(marker);
+        
+        request.onsuccess = function(event) {
+          resolve(event.target.result);
+        };
+        
+        request.onerror = function(event) {
+          reject(event.target.error);
+        };
+      });
+    }
+
+    function deleteMarker(id) {
+      return new Promise((resolve, reject) => {
+        if (!db) {
+          reject('数据库未初始化');
+          return;
+        }
+        
+        const transaction = db.transaction(['markers'], 'readwrite');
+        const store = transaction.objectStore('markers');
+        const request = store.delete(id);
+        
+        request.onsuccess = function() {
+          resolve();
+        };
+        
+        request.onerror = function(event) {
+          reject(event.target.error);
+        };
+      });
+    }
+
+    function getUser() {
+      return new Promise((resolve, reject) => {
+        if (!db) {
+          reject('数据库未初始化');
+          return;
+        }
+        
+        const transaction = db.transaction(['users'], 'readonly');
+        const store = transaction.objectStore('users');
+        const request = store.get(1);
+        
+        request.onsuccess = function(event) {
+          resolve(event.target.result);
+        };
+        
+        request.onerror = function(event) {
+          reject(event.target.error);
+        };
+      });
+    }
+
+    function updateUser(user) {
+      return new Promise((resolve, reject) => {
+        if (!db) {
+          reject('数据库未初始化');
+          return;
+        }
+        
+        const transaction = db.transaction(['users'], 'readwrite');
+        const store = transaction.objectStore('users');
+        const request = store.put(user);
+        
+        request.onsuccess = function(event) {
+          resolve(event.target.result);
+        };
+        
+        request.onerror = function(event) {
+          reject(event.target.error);
+        };
+      });
+    }
+
+    // 初始化个人中心
+    async function initProfile() {
+      try {
+        // 从数据库读取用户信息
+        const user = await getUser();
+        if (user) {
+          document.getElementById('profile-avatar').src = user.avatar;
+          document.getElementById('profile-name').textContent = user.name;
+          document.getElementById('profile-bio').textContent = user.bio;
+        }
+      } catch (error) {
+        console.error('获取用户信息失败:', error);
+      }
+    }
+
+    // 初始化头像上传
+    function initAvatarUpload() {
+      const avatarInput = document.getElementById('avatar-input');
+      avatarInput.addEventListener('change', async function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        try {
+          // 压缩图片
+          const compressedBlob = await compressImage(file, 0.7, 300, 300);
+          
+          // 转换为data URL
+          const reader = new FileReader();
+          reader.onload = async function(e) {
+            const avatarUrl = e.target.result;
+            
+            // 更新头像显示
+            document.getElementById('profile-avatar').src = avatarUrl;
+            
+            // 保存到数据库
+            try {
+              const user = await getUser();
+              if (user) {
+                user.avatar = avatarUrl;
+                user.updated_at = new Date().toISOString();
+                await updateUser(user);
+                alert('头像更新成功！');
+              }
+            } catch (error) {
+              console.error('保存头像失败:', error);
+              alert('保存头像失败，请重试！');
+            }
+          };
+          reader.readAsDataURL(compressedBlob);
+        } catch (error) {
+          console.error('处理头像失败:', error);
+          alert('处理头像失败，请重试！');
+        }
+      });
+    }
+
+    // 实现数据同步功能
+    function initSync() {
+      // 模拟同步状态
+      const syncStatus = document.getElementById('sync-status');
+      syncStatus.textContent = '正在同步...';
+      
+      // 模拟同步过程
+      setTimeout(() => {
+        syncStatus.textContent = '同步完成';
+        setTimeout(() => {
+          syncStatus.textContent = '自动同步';
+        }, 2000);
+      }, 1000);
+    }
+
+    // 页面导航时初始化对应页面
+    document.addEventListener('DOMContentLoaded', function() {
+      // 初始化头像上传
+      initAvatarUpload();
+      
+      // 初始化个人中心
+      const profilePage = document.getElementById('profile');
+      if (profilePage.classList.contains('active')) {
+        initProfile();
+      }
+      
+      // 导航切换时初始化对应页面
+      const navItems = document.querySelectorAll('.nav-item');
+      navItems.forEach(item => {
+        item.addEventListener('click', function(e) {
+          const pageId = this.getAttribute('data-page');
+          if (pageId === 'profile') {
+            initProfile();
+          }
+        });
+      });
+    });
 
     // 初始化 IndexedDB
     initIndexedDB();
