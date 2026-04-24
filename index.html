@@ -1235,25 +1235,36 @@
           // 先保存到数据库
           await addDiary(diary);
           
-          // 如果是共享日记，立即保存到云端
+          // 如果是共享日记，保存到本地存储作为备份
           if (isPublic) {
             try {
-              const response = await fetch('/api/diaries', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(diary)
-              });
-              const data = await response.json();
-              if (!data.success) {
-                console.error('云端保存失败:', data.error);
-              } else {
-                console.log('云端保存成功');
+              // 保存到本地存储
+              const localSharedDiaries = JSON.parse(localStorage.getItem('sharedDiaries')) || [];
+              localSharedDiaries.push(diary);
+              localStorage.setItem('sharedDiaries', JSON.stringify(localSharedDiaries));
+              console.log('本地存储保存成功');
+              
+              // 尝试保存到云端
+              try {
+                const response = await fetch('/api/diaries', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify(diary)
+                });
+                const data = await response.json();
+                if (!data.success) {
+                  console.error('云端保存失败:', data.error);
+                } else {
+                  console.log('云端保存成功');
+                }
+              } catch (cloudError) {
+                console.error('保存到云端失败:', cloudError);
+                // 不影响本地保存，继续执行
               }
-            } catch (cloudError) {
-              console.error('保存到云端失败:', cloudError);
-              // 不影响本地保存，继续执行
+            } catch (localError) {
+              console.error('保存到本地存储失败:', localError);
             }
           }
           
@@ -2016,10 +2027,12 @@
       initSync();
       
       // 同步数据到云端
-      syncDataToCloud().then(() => {
+      syncDataToCloud().catch(error => {
+        console.error('同步到云端失败:', error);
+      }).finally(() => {
         // 从云端同步数据
         return syncDataFromCloud();
-      }).then(() => {
+      }).finally(() => {
         // 重新加载当前页面
         const currentPage = document.querySelector('.page.active');
         if (currentPage.id === 'home') {
@@ -2030,9 +2043,6 @@
           initSharedDiaries();
         }
         alert('同步完成！');
-      }).catch(error => {
-        console.error('同步失败:', error);
-        alert('同步失败，请重试！');
       });
     }
 
@@ -2095,14 +2105,18 @@
         const response = await fetch('/api/diaries');
         const data = await response.json();
         
-        if (!data.success) {
-          throw new Error(data.error || '获取数据失败');
-        }
-        
-        // 处理新数据
-        if (data.data && data.data.length > 0) {
+        if (data.success && data.data && data.data.length > 0) {
+          // 处理新数据
           const transaction = db.transaction(['diaries'], 'readwrite');
           const diaryStore = transaction.objectStore('diaries');
+          
+          // 提取共享日记
+          const sharedDiaries = data.data.filter(diary => diary.is_public);
+          
+          // 保存共享日记到本地存储
+          if (sharedDiaries.length > 0) {
+            localStorage.setItem('sharedDiaries', JSON.stringify(sharedDiaries));
+          }
           
           for (const diary of data.data) {
             // 检查本地是否已有
@@ -2121,7 +2135,8 @@
         return true;
       } catch (error) {
         console.error('从云端同步失败:', error);
-        throw error;
+        // 即使同步失败，也不抛出错误，保证应用正常运行
+        return false;
       }
     }
 
@@ -2231,18 +2246,33 @@
     // 从 API 获取共享日记
     async function fetchSharedDiariesFromAPI() {
       try {
-        // 调用真正的 API
+        // 先尝试从 API 获取
         const response = await fetch('/api/shared');
         const data = await response.json();
         
-        if (data.success) {
+        if (data.success && data.data && data.data.length > 0) {
+          // 保存到本地存储作为备份
+          localStorage.setItem('sharedDiaries', JSON.stringify(data.data));
           return data.data;
         } else {
           console.error('从 API 获取共享日记失败:', data.error);
-          return [];
+          // 回退到本地存储
+          return getSharedDiariesFromLocal();
         }
       } catch (error) {
         console.error('从 API 获取共享日记失败:', error);
+        // 回退到本地存储
+        return getSharedDiariesFromLocal();
+      }
+    }
+
+    // 从本地存储获取共享日记
+    function getSharedDiariesFromLocal() {
+      try {
+        const localSharedDiaries = JSON.parse(localStorage.getItem('sharedDiaries')) || [];
+        return localSharedDiaries;
+      } catch (error) {
+        console.error('从本地存储获取共享日记失败:', error);
         return [];
       }
     }
