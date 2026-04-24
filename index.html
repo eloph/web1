@@ -635,6 +635,60 @@
     .page.active {
       display: block;
     }
+
+    /* 开关按钮样式 */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 40px;
+      height: 20px;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: .4s;
+      border-radius: 20px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 2px;
+      bottom: 2px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background-color: var(--pink);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(20px);
+    }
+
+    .slider.round {
+      border-radius: 34px;
+    }
+
+    .slider.round:before {
+      border-radius: 50%;
+    }
   </style>
 </head>
 <body>
@@ -705,6 +759,14 @@
           <div class="uploaded-images"></div>
         </div>
 
+        <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+          <span>分享到共享空间</span>
+          <label class="switch">
+            <input type="checkbox" id="share-checkbox">
+            <span class="slider round"></span>
+          </label>
+        </div>
+
         <button class="submit-btn">发布日记</button>
       </div>
     </div>
@@ -761,7 +823,27 @@
           </li>
           <li class="settings-item">
             <span class="settings-label">同步设置</span>
-            <span class="settings-value" id="sync-status">自动同步</span>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span id="sync-status">自动同步</span>
+              <label class="switch">
+                <input type="checkbox" id="sync-toggle" checked>
+                <span class="slider round"></span>
+              </label>
+            </div>
+          </li>
+          <li class="settings-item">
+            <span class="settings-label">日记共享模式</span>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span id="share-status">已关闭</span>
+              <label class="switch">
+                <input type="checkbox" id="share-toggle">
+                <span class="slider round"></span>
+              </label>
+            </div>
+          </li>
+          <li class="settings-item" style="cursor: pointer;" onclick="manualSync()">
+            <span class="settings-label">手动同步</span>
+            <span class="settings-value">立即同步</span>
           </li>
           <li class="settings-item">
             <span class="settings-label">关于我们</span>
@@ -851,6 +933,9 @@
       });
     }
 
+    // 全局变量
+    let isDBReady = false;
+
     // 页面导航
     document.addEventListener('DOMContentLoaded', function() {
       const navItems = document.querySelectorAll('.nav-item');
@@ -869,16 +954,17 @@
           pages.forEach(page => page.classList.remove('active'));
           document.getElementById(pageId).classList.add('active');
           
-          // 初始化地图
+          // 初始化对应页面
           if (pageId === 'map') {
             initMap();
+          } else if (pageId === 'home') {
+            initHome();
+          } else if (pageId === 'profile') {
+            initProfile();
           }
         });
       });
 
-      // 初始化首页
-      initHome();
-      
       // 初始化编辑器
       initEditor();
       
@@ -891,6 +977,15 @@
       // 初始化标记模态框
       initMarkerModal();
     });
+
+    // 数据库初始化完成后加载首页
+    function loadHomeWhenDBReady() {
+      if (isDBReady) {
+        initHome();
+      } else {
+        setTimeout(loadHomeWhenDBReady, 100);
+      }
+    }
 
     // 初始化首页
     async function initHome() {
@@ -1103,6 +1198,10 @@
           return;
         }
         
+        // 获取共享选项
+        const shareCheckbox = document.getElementById('share-checkbox');
+        const isPublic = shareCheckbox.checked;
+
         // 创建日记对象
         const diary = {
           id: Date.now(), // 使用时间戳作为ID
@@ -1114,7 +1213,8 @@
           images: images,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-          sync_status: 'pending'
+          sync_status: 'pending',
+          is_public: isPublic
         };
         
         try {
@@ -1433,7 +1533,7 @@
 
     // 初始化 IndexedDB
     function initIndexedDB() {
-      const request = indexedDB.open('diary-app', 1);
+      const request = indexedDB.open('diary-app', 2);
       
       request.onerror = function(event) {
         console.error('数据库打开失败:', event.target.error);
@@ -1443,7 +1543,11 @@
         db = event.target.result;
         console.log('数据库打开成功');
         // 初始化数据
-        initData();
+        initData().then(() => {
+          isDBReady = true;
+          // 加载首页
+          loadHomeWhenDBReady();
+        });
       };
       
       request.onupgradeneeded = function(event) {
@@ -1475,117 +1579,154 @@
         if (!db.objectStoreNames.contains('sync_status')) {
           db.createObjectStore('sync_status', { keyPath: 'id' });
         }
+        
+        // 添加共享设置存储
+        if (!db.objectStoreNames.contains('settings')) {
+          db.createObjectStore('settings', { keyPath: 'id' });
+        }
       };
     }
 
     // 初始化默认数据
     function initData() {
-      // 检查是否有用户数据
-      const transaction = db.transaction(['users'], 'readwrite');
-      const userStore = transaction.objectStore('users');
-      const userRequest = userStore.get(1);
-      
-      userRequest.onsuccess = function(event) {
-        if (!event.target.result) {
-          // 创建默认用户
-          userStore.add({
-            id: 1,
-            name: '小企鹅',
-            bio: '喜欢旅行和记录生活的小可爱',
-            avatar: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=cute%20teddy%20bear%20avatar%20cartoon%20style&image_size=square',
-            created_at: new Date().toISOString()
-          });
-        }
-      };
-      
-      // 检查是否有日记数据
-      const diaryTransaction = db.transaction(['diaries'], 'readwrite');
-      const diaryStore = diaryTransaction.objectStore('diaries');
-      const diaryCountRequest = diaryStore.count();
-      
-      diaryCountRequest.onsuccess = function(event) {
-        if (event.target.result === 0) {
-          // 添加默认日记
-          const defaultDiaries = [
-            {
+      return new Promise((resolve) => {
+        // 检查是否有用户数据
+        const transaction = db.transaction(['users'], 'readwrite');
+        const userStore = transaction.objectStore('users');
+        const userRequest = userStore.get(1);
+        
+        userRequest.onsuccess = function(event) {
+          if (!event.target.result) {
+            // 创建默认用户
+            userStore.add({
               id: 1,
-              user_id: 1,
-              title: '今天去了公园',
-              content: '今天天气很好，和朋友一起去了公园，看到了很多美丽的花朵，还遇到了一只可爱的小猫咪。',
-              mood: 'happy',
-              date: '2026-04-23',
-              images: [
-                'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=beautiful%20park%20with%20flowers%20cartoon%20style&image_size=square',
-                'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=cute%20cat%20in%20park%20cartoon%20style&image_size=square'
-              ],
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-              sync_status: 'synced'
-            },
-            {
-              id: 2,
-              user_id: 1,
-              title: '旅行日记',
-              content: '终于来到了梦寐以求的海边，海水很蓝，沙滩很软，心情超级好！',
-              mood: 'excited',
-              date: '2026-04-22',
-              images: [
-                'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=beautiful%20beach%20with%20blue%20sea%20cartoon%20style&image_size=square'
-              ],
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-              sync_status: 'synced'
-            }
-          ];
-          
-          defaultDiaries.forEach(diary => {
-            diaryStore.add(diary);
-          });
-        }
-      };
-      
-      // 检查是否有标记数据
-      const markerTransaction = db.transaction(['markers'], 'readwrite');
-      const markerStore = markerTransaction.objectStore('markers');
-      const markerCountRequest = markerStore.count();
-      
-      markerCountRequest.onsuccess = function(event) {
-        if (event.target.result === 0) {
-          // 添加默认标记
-          const defaultMarkers = [
-            {
+              name: '小企鹅',
+              bio: '喜欢旅行和记录生活的小可爱',
+              avatar: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=cute%20teddy%20bear%20avatar%20cartoon%20style&image_size=square',
+              created_at: new Date().toISOString()
+            });
+          }
+        };
+        
+        // 检查是否有日记数据
+        const diaryTransaction = db.transaction(['diaries'], 'readwrite');
+        const diaryStore = diaryTransaction.objectStore('diaries');
+        const diaryCountRequest = diaryStore.count();
+        
+        diaryCountRequest.onsuccess = function(event) {
+          if (event.target.result === 0) {
+            // 添加默认日记
+            const defaultDiaries = [
+              {
+                id: 1,
+                user_id: 1,
+                title: '今天去了公园',
+                content: '今天天气很好，和朋友一起去了公园，看到了很多美丽的花朵，还遇到了一只可爱的小猫咪。',
+                mood: 'happy',
+                date: '2026-04-23',
+                images: [
+                  'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=beautiful%20park%20with%20flowers%20cartoon%20style&image_size=square',
+                  'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=cute%20cat%20in%20park%20cartoon%20style&image_size=square'
+                ],
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                sync_status: 'synced',
+                is_public: false
+              },
+              {
+                id: 2,
+                user_id: 1,
+                title: '旅行日记',
+                content: '终于来到了梦寐以求的海边，海水很蓝，沙滩很软，心情超级好！',
+                mood: 'excited',
+                date: '2026-04-22',
+                images: [
+                  'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=beautiful%20beach%20with%20blue%20sea%20cartoon%20style&image_size=square'
+                ],
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                sync_status: 'synced',
+                is_public: false
+              }
+            ];
+            
+            defaultDiaries.forEach(diary => {
+              diaryStore.add(diary);
+            });
+          }
+        };
+        
+        // 检查是否有标记数据
+        const markerTransaction = db.transaction(['markers'], 'readwrite');
+        const markerStore = markerTransaction.objectStore('markers');
+        const markerCountRequest = markerStore.count();
+        
+        markerCountRequest.onsuccess = function(event) {
+          if (event.target.result === 0) {
+            // 添加默认标记
+            const defaultMarkers = [
+              {
+                id: 1,
+                user_id: 1,
+                name: '北京',
+                lat: 39.9042,
+                lng: 116.4074,
+                images: [
+                  'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=beijing%20forbidden%20city%20cartoon%20style&image_size=square'
+                ],
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                sync_status: 'synced'
+              },
+              {
+                id: 2,
+                user_id: 1,
+                name: '上海',
+                lat: 31.2304,
+                lng: 121.4737,
+                images: [
+                  'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=shanghai%20skyline%20cartoon%20style&image_size=square'
+                ],
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                sync_status: 'synced'
+              }
+            ];
+            
+            defaultMarkers.forEach(marker => {
+              markerStore.add(marker);
+            });
+          }
+        };
+        
+        // 检查是否有设置数据
+        const settingsTransaction = db.transaction(['settings'], 'readwrite');
+        const settingsStore = settingsTransaction.objectStore('settings');
+        const settingsRequest = settingsStore.get(1);
+        
+        settingsRequest.onsuccess = function(event) {
+          if (!event.target.result) {
+            // 创建默认设置
+            settingsStore.add({
               id: 1,
-              user_id: 1,
-              name: '北京',
-              lat: 39.9042,
-              lng: 116.4074,
-              images: [
-                'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=beijing%20forbidden%20city%20cartoon%20style&image_size=square'
-              ],
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-              sync_status: 'synced'
-            },
-            {
-              id: 2,
-              user_id: 1,
-              name: '上海',
-              lat: 31.2304,
-              lng: 121.4737,
-              images: [
-                'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=shanghai%20skyline%20cartoon%20style&image_size=square'
-              ],
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-              sync_status: 'synced'
-            }
-          ];
-          
-          defaultMarkers.forEach(marker => {
-            markerStore.add(marker);
-          });
-        }
-      };
+              sync_enabled: true,
+              share_enabled: false,
+              last_sync: new Date().toISOString()
+            });
+          }
+        };
+        
+        // 所有事务完成后 resolve
+        transaction.oncomplete = function() {
+          diaryTransaction.oncomplete = function() {
+            markerTransaction.oncomplete = function() {
+              settingsTransaction.oncomplete = function() {
+                resolve();
+              };
+            };
+          };
+        };
+      });
     }
 
     // 数据库操作函数
@@ -1828,6 +1969,86 @@
       }, 1000);
     }
 
+    // 手动同步
+    function manualSync() {
+      if (!isDBReady) {
+        alert('数据库未准备好，请稍后重试！');
+        return;
+      }
+      
+      initSync();
+      
+      // 模拟同步数据到云端
+      setTimeout(async () => {
+        try {
+          // 获取所有数据
+          const diaries = await getDiaries();
+          const markers = await getMarkers();
+          const user = await getUser();
+          
+          // 模拟上传到云端
+          console.log('同步数据到云端:', { diaries, markers, user });
+          
+          // 更新同步状态
+          const transaction = db.transaction(['sync_status'], 'readwrite');
+          const syncStore = transaction.objectStore('sync_status');
+          syncStore.put({
+            id: 1,
+            last_sync: new Date().toISOString(),
+            status: 'completed'
+          });
+          
+          alert('同步完成！');
+        } catch (error) {
+          console.error('同步失败:', error);
+          alert('同步失败，请重试！');
+        }
+      }, 1500);
+    }
+
+    // 初始化设置页面
+    function initSettings() {
+      // 同步开关
+      const syncToggle = document.getElementById('sync-toggle');
+      const syncStatus = document.getElementById('sync-status');
+      
+      syncToggle.addEventListener('change', async function() {
+        try {
+          const transaction = db.transaction(['settings'], 'readwrite');
+          const settingsStore = transaction.objectStore('settings');
+          const settings = await settingsStore.get(1);
+          
+          settings.sync_enabled = this.checked;
+          settingsStore.put(settings);
+          
+          syncStatus.textContent = this.checked ? '自动同步' : '已关闭';
+          alert(this.checked ? '同步功能已开启' : '同步功能已关闭');
+        } catch (error) {
+          console.error('更新设置失败:', error);
+        }
+      });
+      
+      // 共享开关
+      const shareToggle = document.getElementById('share-toggle');
+      const shareStatus = document.getElementById('share-status');
+      
+      shareToggle.addEventListener('change', async function() {
+        try {
+          const transaction = db.transaction(['settings'], 'readwrite');
+          const settingsStore = transaction.objectStore('settings');
+          const settings = await settingsStore.get(1);
+          
+          settings.share_enabled = this.checked;
+          settingsStore.put(settings);
+          
+          shareStatus.textContent = this.checked ? '已开启' : '已关闭';
+          alert(this.checked ? '日记共享模式已开启' : '日记共享模式已关闭');
+        } catch (error) {
+          console.error('更新设置失败:', error);
+        }
+      });
+    }
+
     // 页面导航时初始化对应页面
     document.addEventListener('DOMContentLoaded', function() {
       // 初始化头像上传
@@ -1837,6 +2058,7 @@
       const profilePage = document.getElementById('profile');
       if (profilePage.classList.contains('active')) {
         initProfile();
+        initSettings();
       }
       
       // 导航切换时初始化对应页面
@@ -1846,6 +2068,7 @@
           const pageId = this.getAttribute('data-page');
           if (pageId === 'profile') {
             initProfile();
+            initSettings();
           }
         });
       });
