@@ -1,3 +1,6 @@
+// 声明 KV 存储
+const DIARIES_KV = KV_NAMESPACE;
+
 addEventListener('fetch', event => {
   event.respondWith(handleRequest(event.request));
 });
@@ -30,6 +33,8 @@ async function handleRequest(request) {
         return handleMarkers(request, headers);
       case 'sync':
         return handleSync(request, headers);
+      case 'shared':
+        return handleSharedDiaries(request, headers);
       default:
         return new Response(JSON.stringify({ error: 'Not found' }), {
           status: 404,
@@ -48,37 +53,114 @@ async function handleDiaries(request, headers) {
   
   switch (method) {
     case 'GET':
-      // 获取所有日记（包括共享的）
-      return new Response(JSON.stringify({
-        success: true,
-        data: []
-      }), { headers });
+      // 获取所有日记
+      try {
+        const diariesJson = await DIARIES_KV.get('diaries');
+        const diaries = diariesJson ? JSON.parse(diariesJson) : [];
+        return new Response(JSON.stringify({
+          success: true,
+          data: diaries
+        }), { headers });
+      } catch (error) {
+        console.error('获取日记失败:', error);
+        return new Response(JSON.stringify({ error: '获取日记失败' }), {
+          status: 500,
+          headers
+        });
+      }
       
     case 'POST':
       // 创建新日记
-      const diaryData = await request.json();
-      return new Response(JSON.stringify({
-        success: true,
-        data: {
+      try {
+        const diaryData = await request.json();
+        const newDiary = {
           ...diaryData,
-          id: Date.now()
-        }
-      }), { headers });
+          id: Date.now(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        
+        // 获取现有日记
+        const diariesJson = await DIARIES_KV.get('diaries');
+        const diaries = diariesJson ? JSON.parse(diariesJson) : [];
+        
+        // 添加新日记
+        diaries.push(newDiary);
+        
+        // 保存到 KV
+        await DIARIES_KV.put('diaries', JSON.stringify(diaries));
+        
+        return new Response(JSON.stringify({
+          success: true,
+          data: newDiary
+        }), { headers });
+      } catch (error) {
+        console.error('创建日记失败:', error);
+        return new Response(JSON.stringify({ error: '创建日记失败' }), {
+          status: 500,
+          headers
+        });
+      }
       
     case 'PUT':
       // 更新日记
-      const updateData = await request.json();
-      return new Response(JSON.stringify({
-        success: true,
-        data: updateData
-      }), { headers });
+      try {
+        const updateData = await request.json();
+        const diariesJson = await DIARIES_KV.get('diaries');
+        const diaries = diariesJson ? JSON.parse(diariesJson) : [];
+        
+        const index = diaries.findIndex(d => d.id === updateData.id);
+        if (index === -1) {
+          return new Response(JSON.stringify({ error: '日记不存在' }), {
+            status: 404,
+            headers
+          });
+        }
+        
+        diaries[index] = {
+          ...diaries[index],
+          ...updateData,
+          updated_at: new Date().toISOString()
+        };
+        
+        await DIARIES_KV.put('diaries', JSON.stringify(diaries));
+        
+        return new Response(JSON.stringify({
+          success: true,
+          data: diaries[index]
+        }), { headers });
+      } catch (error) {
+        console.error('更新日记失败:', error);
+        return new Response(JSON.stringify({ error: '更新日记失败' }), {
+          status: 500,
+          headers
+        });
+      }
       
     case 'DELETE':
       // 删除日记
-      return new Response(JSON.stringify({
-        success: true,
-        message: 'Diary deleted'
-      }), { headers });
+      try {
+        const url = new URL(request.url);
+        const id = parseInt(url.searchParams.get('id'));
+        
+        const diariesJson = await DIARIES_KV.get('diaries');
+        const diaries = diariesJson ? JSON.parse(diariesJson) : [];
+        
+        const filteredDiaries = diaries.filter(d => d.id !== id);
+        
+        await DIARIES_KV.put('diaries', JSON.stringify(filteredDiaries));
+        
+        return new Response(JSON.stringify({
+          success: true,
+          message: 'Diary deleted'
+        }), { headers });
+      } catch (error) {
+        console.error('删除日记失败:', error);
+        return new Response(JSON.stringify({ error: '删除日记失败' }), {
+          status: 500,
+          headers
+        });
+      }
       
     default:
       return new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -126,18 +208,74 @@ async function handleMarkers(request, headers) {
   }
 }
 
+// 处理共享日记请求
+async function handleSharedDiaries(request, headers) {
+  try {
+    const diariesJson = await DIARIES_KV.get('diaries');
+    const diaries = diariesJson ? JSON.parse(diariesJson) : [];
+    
+    // 过滤出共享的日记
+    const sharedDiaries = diaries.filter(diary => diary.is_public);
+    
+    return new Response(JSON.stringify({
+      success: true,
+      data: sharedDiaries
+    }), { headers });
+  } catch (error) {
+    console.error('获取共享日记失败:', error);
+    return new Response(JSON.stringify({ error: '获取共享日记失败' }), {
+      status: 500,
+      headers
+    });
+  }
+}
+
 // 处理同步请求
 async function handleSync(request, headers) {
   const method = request.method;
   
   if (method === 'POST') {
-    // 同步数据
-    const syncData = await request.json();
-    return new Response(JSON.stringify({
-      success: true,
-      message: 'Sync completed',
-      timestamp: new Date().toISOString()
-    }), { headers });
+    try {
+      // 同步数据
+      const syncData = await request.json();
+      
+      // 处理日记数据
+      if (syncData.diaries && syncData.diaries.length > 0) {
+        const diariesJson = await DIARIES_KV.get('diaries');
+        const existingDiaries = diariesJson ? JSON.parse(diariesJson) : [];
+        
+        // 合并日记数据
+        for (const diary of syncData.diaries) {
+          const existingIndex = existingDiaries.findIndex(d => d.id === diary.id);
+          if (existingIndex === -1) {
+            // 新日记
+            existingDiaries.push(diary);
+          } else {
+            // 更新现有日记
+            existingDiaries[existingIndex] = {
+              ...existingDiaries[existingIndex],
+              ...diary,
+              updated_at: new Date().toISOString()
+            };
+          }
+        }
+        
+        // 保存到 KV
+        await DIARIES_KV.put('diaries', JSON.stringify(existingDiaries));
+      }
+      
+      return new Response(JSON.stringify({
+        success: true,
+        message: 'Sync completed',
+        timestamp: new Date().toISOString()
+      }), { headers });
+    } catch (error) {
+      console.error('同步失败:', error);
+      return new Response(JSON.stringify({ error: '同步失败' }), {
+        status: 500,
+        headers
+      });
+    }
   }
   
   return new Response(JSON.stringify({ error: 'Method not allowed' }), {

@@ -1994,6 +1994,18 @@
       
       // 同步数据到云端
       syncDataToCloud().then(() => {
+        // 从云端同步数据
+        return syncDataFromCloud();
+      }).then(() => {
+        // 重新加载当前页面
+        const currentPage = document.querySelector('.page.active');
+        if (currentPage.id === 'home') {
+          document.getElementById('diary-list').innerHTML = '';
+          initHome();
+        } else if (currentPage.id === 'shared') {
+          document.getElementById('shared-diary-list').innerHTML = '';
+          initSharedDiaries();
+        }
         alert('同步完成！');
       }).catch(error => {
         console.error('同步失败:', error);
@@ -2017,11 +2029,18 @@
         };
         
         // 调用后端 API 进行同步
-        // 实际项目中，这里应该是真实的 API 请求
-        console.log('同步数据到云端:', syncData);
+        const response = await fetch('/api/sync', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(syncData)
+        });
         
-        // 模拟 API 响应
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        const data = await response.json();
+        if (!data.success) {
+          throw new Error(data.error || '同步失败');
+        }
         
         // 更新同步状态
         const transaction = db.transaction(['diaries', 'markers', 'sync_status'], 'readwrite');
@@ -2063,34 +2082,29 @@
     async function syncDataFromCloud() {
       try {
         // 调用后端 API 获取最新数据
-        // 实际项目中，这里应该是真实的 API 请求
-        console.log('从云端同步数据');
+        const response = await fetch('/api/diaries');
+        const data = await response.json();
         
-        // 模拟 API 响应
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // 模拟获取到的新数据
-        const newData = {
-          diaries: [],
-          markers: []
-        };
+        if (!data.success) {
+          throw new Error(data.error || '获取数据失败');
+        }
         
         // 处理新数据
-        if (newData.diaries.length > 0) {
+        if (data.data && data.data.length > 0) {
           const transaction = db.transaction(['diaries'], 'readwrite');
           const diaryStore = transaction.objectStore('diaries');
           
-          for (const diary of newData.diaries) {
-            diaryStore.put(diary);
-          }
-        }
-        
-        if (newData.markers.length > 0) {
-          const transaction = db.transaction(['markers'], 'readwrite');
-          const markerStore = transaction.objectStore('markers');
-          
-          for (const marker of newData.markers) {
-            markerStore.put(marker);
+          for (const diary of data.data) {
+            // 检查本地是否已有
+            const existingDiary = await new Promise((resolve) => {
+              const request = diaryStore.get(diary.id);
+              request.onsuccess = () => resolve(request.result);
+              request.onerror = () => resolve(null);
+            });
+            
+            if (!existingDiary || new Date(diary.updated_at) > new Date(existingDiary.updated_at)) {
+              diaryStore.put(diary);
+            }
           }
         }
         
@@ -2214,25 +2228,16 @@
     // 从 API 获取共享日记
     async function fetchSharedDiariesFromAPI() {
       try {
-        // 模拟 API 请求
-        // 实际项目中，这里应该是真实的 API 请求
-        return [
-          {
-            id: 1001,
-            user_id: 2,
-            title: '朋友的旅行日记',
-            content: '今天和朋友一起去了长城，景色非常壮观！',
-            mood: 'excited',
-            date: '2026-04-24',
-            images: [
-              'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=great%20wall%20of%20china%20cartoon%20style&image_size=square'
-            ],
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            sync_status: 'synced',
-            is_public: true
-          }
-        ];
+        // 调用真正的 API
+        const response = await fetch('/api/shared');
+        const data = await response.json();
+        
+        if (data.success) {
+          return data.data;
+        } else {
+          console.error('从 API 获取共享日记失败:', data.error);
+          return [];
+        }
       } catch (error) {
         console.error('从 API 获取共享日记失败:', error);
         return [];
