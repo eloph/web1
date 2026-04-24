@@ -706,6 +706,10 @@
       <span class="nav-icon">✏️</span>
       <span class="nav-text">写日记</span>
     </a>
+    <a href="#" class="nav-item" data-page="shared">
+      <span class="nav-icon">👥</span>
+      <span class="nav-text">共享</span>
+    </a>
     <a href="#" class="nav-item" data-page="profile">
       <span class="nav-icon">👤</span>
       <span class="nav-text">我的</span>
@@ -794,6 +798,14 @@
       <h1 class="page-title">🗺️ 旅行地图</h1>
       <button class="add-marker-btn" id="add-marker-btn">添加新标记 🐧</button>
       <div id="map-container"></div>
+    </div>
+  </div>
+
+  <!-- 共享日记页面 -->
+  <div class="page" id="shared">
+    <div class="container">
+      <h1 class="page-title">👥 共享日记</h1>
+      <div id="shared-diary-list"></div>
     </div>
   </div>
 
@@ -961,6 +973,8 @@
             initHome();
           } else if (pageId === 'profile') {
             initProfile();
+          } else if (pageId === 'shared') {
+            initSharedDiaries();
           }
         });
       });
@@ -1978,32 +1992,113 @@
       
       initSync();
       
-      // 模拟同步数据到云端
-      setTimeout(async () => {
-        try {
-          // 获取所有数据
-          const diaries = await getDiaries();
-          const markers = await getMarkers();
-          const user = await getUser();
-          
-          // 模拟上传到云端
-          console.log('同步数据到云端:', { diaries, markers, user });
-          
-          // 更新同步状态
-          const transaction = db.transaction(['sync_status'], 'readwrite');
-          const syncStore = transaction.objectStore('sync_status');
-          syncStore.put({
-            id: 1,
-            last_sync: new Date().toISOString(),
-            status: 'completed'
-          });
-          
-          alert('同步完成！');
-        } catch (error) {
-          console.error('同步失败:', error);
-          alert('同步失败，请重试！');
+      // 同步数据到云端
+      syncDataToCloud().then(() => {
+        alert('同步完成！');
+      }).catch(error => {
+        console.error('同步失败:', error);
+        alert('同步失败，请重试！');
+      });
+    }
+
+    // 同步数据到云端
+    async function syncDataToCloud() {
+      try {
+        // 获取所有数据
+        const diaries = await getDiaries();
+        const markers = await getMarkers();
+        const user = await getUser();
+        
+        // 准备同步数据
+        const syncData = {
+          diaries: diaries.filter(d => d.sync_status === 'pending' || d.is_public),
+          markers: markers.filter(m => m.sync_status === 'pending'),
+          user: user
+        };
+        
+        // 调用后端 API 进行同步
+        // 实际项目中，这里应该是真实的 API 请求
+        console.log('同步数据到云端:', syncData);
+        
+        // 模拟 API 响应
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // 更新同步状态
+        const transaction = db.transaction(['diaries', 'markers', 'sync_status'], 'readwrite');
+        const diaryStore = transaction.objectStore('diaries');
+        const markerStore = transaction.objectStore('markers');
+        const syncStore = transaction.objectStore('sync_status');
+        
+        // 更新日记同步状态
+        for (const diary of diaries) {
+          if (diary.sync_status === 'pending') {
+            diary.sync_status = 'synced';
+            diaryStore.put(diary);
+          }
         }
-      }, 1500);
+        
+        // 更新标记同步状态
+        for (const marker of markers) {
+          if (marker.sync_status === 'pending') {
+            marker.sync_status = 'synced';
+            markerStore.put(marker);
+          }
+        }
+        
+        // 更新同步状态
+        syncStore.put({
+          id: 1,
+          last_sync: new Date().toISOString(),
+          status: 'completed'
+        });
+        
+        return true;
+      } catch (error) {
+        console.error('同步到云端失败:', error);
+        throw error;
+      }
+    }
+
+    // 从云端同步数据
+    async function syncDataFromCloud() {
+      try {
+        // 调用后端 API 获取最新数据
+        // 实际项目中，这里应该是真实的 API 请求
+        console.log('从云端同步数据');
+        
+        // 模拟 API 响应
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // 模拟获取到的新数据
+        const newData = {
+          diaries: [],
+          markers: []
+        };
+        
+        // 处理新数据
+        if (newData.diaries.length > 0) {
+          const transaction = db.transaction(['diaries'], 'readwrite');
+          const diaryStore = transaction.objectStore('diaries');
+          
+          for (const diary of newData.diaries) {
+            diaryStore.put(diary);
+          }
+        }
+        
+        if (newData.markers.length > 0) {
+          const transaction = db.transaction(['markers'], 'readwrite');
+          const markerStore = transaction.objectStore('markers');
+          
+          for (const marker of newData.markers) {
+            markerStore.put(marker);
+          }
+        }
+        
+        return true;
+      } catch (error) {
+        console.error('从云端同步失败:', error);
+        throw error;
+      }
     }
 
     // 初始化设置页面
@@ -2049,16 +2144,113 @@
       });
     }
 
+    // 初始化共享日记页面
+    async function initSharedDiaries() {
+      const sharedDiaryList = document.getElementById('shared-diary-list');
+      
+      try {
+        // 显示加载状态
+        sharedDiaryList.innerHTML = '<div class="loading"><span class="loading-pingu">🐧</span></div>';
+        
+        // 从本地存储获取共享日记
+        const diaries = await getDiaries();
+        const sharedDiaries = diaries.filter(diary => diary.is_public);
+        
+        // 从后端 API 获取其他用户的共享日记（模拟）
+        const otherSharedDiaries = await fetchSharedDiariesFromAPI();
+        
+        // 合并所有共享日记
+        const allSharedDiaries = [...sharedDiaries, ...otherSharedDiaries];
+        
+        // 按日期排序（最新的在前）
+        allSharedDiaries.sort((a, b) => new Date(b.date) - new Date(a.date));
+        
+        // 渲染共享日记列表
+        if (allSharedDiaries.length === 0) {
+          sharedDiaryList.innerHTML = '<p style="text-align: center; color: #666;">暂无共享日记</p>';
+          return;
+        }
+        
+        sharedDiaryList.innerHTML = '';
+        allSharedDiaries.forEach(diary => {
+          const diaryCard = document.createElement('div');
+          diaryCard.className = 'card diary-card';
+          diaryCard.onclick = () => showDiaryDetail(diary);
+          
+          // 心情表情映射
+          const moodEmojis = {
+            happy: '😊',
+            calm: '😌',
+            sad: '😢',
+            excited: '🤩',
+            tired: '😴'
+          };
+          
+          diaryCard.innerHTML = `
+            <div class="diary-header">
+              <span class="diary-date">${diary.date}</span>
+              <span class="diary-mood">${moodEmojis[diary.mood]}</span>
+            </div>
+            <h3 class="diary-title">${diary.title}</h3>
+            <p class="diary-content">${diary.content}</p>
+            ${diary.images.length > 0 ? `
+              <div class="diary-images">
+                ${diary.images.map(img => `<img src="${img}" alt="日记图片" class="diary-image">`).join('')}
+              </div>
+            ` : ''}
+            <div style="margin-top: 10px; text-align: right;">
+              <span style="color: var(--pink); font-size: 12px;">🔗 共享日记</span>
+            </div>
+          `;
+          
+          sharedDiaryList.appendChild(diaryCard);
+        });
+      } catch (error) {
+        console.error('获取共享日记失败:', error);
+        sharedDiaryList.innerHTML = '<p style="text-align: center; color: #666;">加载共享日记失败，请刷新页面重试</p>';
+      }
+    }
+
+    // 从 API 获取共享日记
+    async function fetchSharedDiariesFromAPI() {
+      try {
+        // 模拟 API 请求
+        // 实际项目中，这里应该是真实的 API 请求
+        return [
+          {
+            id: 1001,
+            user_id: 2,
+            title: '朋友的旅行日记',
+            content: '今天和朋友一起去了长城，景色非常壮观！',
+            mood: 'excited',
+            date: '2026-04-24',
+            images: [
+              'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=great%20wall%20of%20china%20cartoon%20style&image_size=square'
+            ],
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            sync_status: 'synced',
+            is_public: true
+          }
+        ];
+      } catch (error) {
+        console.error('从 API 获取共享日记失败:', error);
+        return [];
+      }
+    }
+
     // 页面导航时初始化对应页面
     document.addEventListener('DOMContentLoaded', function() {
       // 初始化头像上传
       initAvatarUpload();
       
-      // 初始化个人中心
-      const profilePage = document.getElementById('profile');
-      if (profilePage.classList.contains('active')) {
+      // 初始化对应页面
+      const currentPage = document.querySelector('.page.active');
+      if (currentPage.id === 'profile') {
         initProfile();
         initSettings();
+      } else if (currentPage.id === 'shared') {
+        initSharedDiaries();
       }
       
       // 导航切换时初始化对应页面
@@ -2069,6 +2261,8 @@
           if (pageId === 'profile') {
             initProfile();
             initSettings();
+          } else if (pageId === 'shared') {
+            initSharedDiaries();
           }
         });
       });
