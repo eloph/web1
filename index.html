@@ -1232,8 +1232,31 @@
         };
         
         try {
-          // 保存到数据库
+          // 先保存到数据库
           await addDiary(diary);
+          
+          // 如果是共享日记，立即保存到云端
+          if (isPublic) {
+            try {
+              const response = await fetch('/api/diaries', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(diary)
+              });
+              const data = await response.json();
+              if (!data.success) {
+                console.error('云端保存失败:', data.error);
+              } else {
+                console.log('云端保存成功');
+              }
+            } catch (cloudError) {
+              console.error('保存到云端失败:', cloudError);
+              // 不影响本地保存，继续执行
+            }
+          }
+          
           alert('日记发布成功！');
           
           // 清空表单
@@ -2018,14 +2041,10 @@
       try {
         // 获取所有数据
         const diaries = await getDiaries();
-        const markers = await getMarkers();
-        const user = await getUser();
         
         // 准备同步数据
         const syncData = {
-          diaries: diaries.filter(d => d.sync_status === 'pending' || d.is_public),
-          markers: markers.filter(m => m.sync_status === 'pending'),
-          user: user
+          diaries: diaries.filter(d => d.sync_status === 'pending' || d.is_public)
         };
         
         // 调用后端 API 进行同步
@@ -2043,9 +2062,8 @@
         }
         
         // 更新同步状态
-        const transaction = db.transaction(['diaries', 'markers', 'sync_status'], 'readwrite');
+        const transaction = db.transaction(['diaries', 'sync_status'], 'readwrite');
         const diaryStore = transaction.objectStore('diaries');
-        const markerStore = transaction.objectStore('markers');
         const syncStore = transaction.objectStore('sync_status');
         
         // 更新日记同步状态
@@ -2053,14 +2071,6 @@
           if (diary.sync_status === 'pending') {
             diary.sync_status = 'synced';
             diaryStore.put(diary);
-          }
-        }
-        
-        // 更新标记同步状态
-        for (const marker of markers) {
-          if (marker.sync_status === 'pending') {
-            marker.sync_status = 'synced';
-            markerStore.put(marker);
           }
         }
         
@@ -2166,27 +2176,20 @@
         // 显示加载状态
         sharedDiaryList.innerHTML = '<div class="loading"><span class="loading-pingu">🐧</span></div>';
         
-        // 从本地存储获取共享日记
-        const diaries = await getDiaries();
-        const sharedDiaries = diaries.filter(diary => diary.is_public);
-        
-        // 从后端 API 获取其他用户的共享日记（模拟）
-        const otherSharedDiaries = await fetchSharedDiariesFromAPI();
-        
-        // 合并所有共享日记
-        const allSharedDiaries = [...sharedDiaries, ...otherSharedDiaries];
+        // 直接从云端获取所有共享日记
+        const sharedDiaries = await fetchSharedDiariesFromAPI();
         
         // 按日期排序（最新的在前）
-        allSharedDiaries.sort((a, b) => new Date(b.date) - new Date(a.date));
+        sharedDiaries.sort((a, b) => new Date(b.date) - new Date(a.date));
         
         // 渲染共享日记列表
-        if (allSharedDiaries.length === 0) {
+        if (sharedDiaries.length === 0) {
           sharedDiaryList.innerHTML = '<p style="text-align: center; color: #666;">暂无共享日记</p>';
           return;
         }
         
         sharedDiaryList.innerHTML = '';
-        allSharedDiaries.forEach(diary => {
+        sharedDiaries.forEach(diary => {
           const diaryCard = document.createElement('div');
           diaryCard.className = 'card diary-card';
           diaryCard.onclick = () => showDiaryDetail(diary);
